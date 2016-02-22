@@ -18,7 +18,7 @@ from glm_tools import combine_masks, fix_paradigm, compute_prf_regressor
 # Data and analysis parameters
 #######################################
 subject = 'AC150013'
-data_dir = os.path.join(os.path.expanduser('~/CODE/process-asl-old'),
+data_dir = os.path.join(os.path.expanduser('~/CODE/process-asl'),
                         'procasl_cache/heroes', subject, 'nipype_mem')
 
 # load functionals, anatomical, motion parameters and paradigm
@@ -36,15 +36,15 @@ mvt_file = glob.glob(
                  'rp_*.txt'))[0]
 paradigm_file = os.path.join(os.path.expanduser('~/procasl_data/HEROES_DB'),
                              'study_new/paradigm_data_subjects_Nov2014',
-                             'paradigm_bilateral_v1_no_final_rest.csv')
+                             'paradigm_bilateral_v1_no_final_rest.csv')  # for vismot1
 
 # load needed images to create the mask
 gm_file = glob.glob(os.path.join(data_dir,
-                                 'nipype-interfaces-spm-preprocess-Segment',
-                                 '*', 'mwc1anat_*.nii'))[0]
+                                 'nipype-interfaces-spm-preprocess-Normalize',
+                                 '*', 'wc1anat_*.nii'))[0]
 wm_file = glob.glob(os.path.join(data_dir,
-                                 'nipype-interfaces-spm-preprocess-Segment',
-                                 '*', 'mwc2anat_*.nii'))[0]
+                                 'nipype-interfaces-spm-preprocess-Normalize',
+                                 '*', 'wc2anat_*.nii'))[0]
 
 func_mask_file = os.path.join(data_dir, 'func_mask_' + subject + '.nii')
 img = nibabel.load(unsmoothed_file)
@@ -145,14 +145,11 @@ print('Loading design matrix...')
 # Create the design matrix
 dmtx = design_matrix.make_dmtx(frametimes, paradigm=paradigm,
                                hrf_model=hrf_model, drift_model=drift_model,
-                               drift_order=drift_order)#, add_regs=add_regs,
-                               #add_reg_names=add_reg_names)
+                               drift_order=drift_order, add_regs=add_regs,
+                               add_reg_names=add_reg_names)
 reg_names = []
 for name in dmtx.names:
-    if 'perfusion' in name:
-        name = name.replace('_checkerboard_motor', '')
-    else:
-        name = name.replace('checkerboard_motor', 'BOLD')
+    name = name.replace('checkerboard_motor', 'BOLD')
     name = name.replace('_', ' ')
     print name
     reg_names.append(name)
@@ -196,9 +193,9 @@ contrasts['BOLD right'] = contrasts['BOLD d2500 right'] + \
 contrasts['[BOLD] left - right'] = \
     contrasts['[BOLD d2500] left - right'] + \
     contrasts['[BOLD d5000] left - right']
-#contrasts['movements'] = contrasts['translation x'] + \
-#    contrasts['translation y'] + contrasts['translation z'] + \
-#    contrasts['roll'] + contrasts['pitch'] + contrasts['yaw']
+contrasts['movements'] = contrasts['translation x'] + \
+    contrasts['translation y'] + contrasts['translation z'] + \
+    contrasts['roll'] + contrasts['pitch'] + contrasts['yaw']
 
 ########################################
 # Perform a GLM analysis
@@ -206,7 +203,7 @@ contrasts['[BOLD] left - right'] = \
 
 print('Fitting a GLM (this takes time)...')
 fmri_glm = glm.FMRILinearModel(func_file, dmtx.matrix,
-                               mask=None)
+                               mask=mask_img)
 fmri_glm.fit(do_scaling=True, model=model)
 
 #########################################
@@ -234,6 +231,7 @@ print np.sum(gm_data)
 threshold = norm.isf(0.05 / n_voxels)  # Z-score threshold, Bonferroni
 unc_threshold = norm.isf(1e-3)  # Z-score threshold, no correction
 to_write = []
+anat_img = nibabel.load(anat_file)
 for index, (contrast_id, contrast_val) in enumerate(contrasts.items()):
     print(' Contrast % 2i out of %i: %s' %
           (index + 1, len(contrasts), contrast_id))
@@ -248,14 +246,12 @@ for index, (contrast_id, contrast_val) in enumerate(contrasts.items()):
     vmax = z_data[np.isfinite(z_data)].max()
     vmin = z_data[np.isfinite(z_data)].min()
     vmax = max(-vmin, vmax)
-    anat_img = nibabel.load(anat_file)
 
     if np.max(np.abs(z_data)) > threshold:
         viz.plot_map(z_map.get_data(), z_map.get_affine(),
                      cmap=viz.cm.cold_hot, vmin=-vmax, vmax=vmax,
-                     slicer='z', black_bg=True, threshold=unc_threshold,
-                     title=contrast_id, anat=anat_img.get_data(),
-                     anat_affine=anat_img.get_affine())
+                     slicer='z', black_bg=True, threshold=threshold,
+                     title=contrast_id)
         plt.savefig(os.path.join(write_dir, '%s_z_map.png' % contrast_id))
 
     reg_type = 'BOLD'
@@ -272,7 +268,7 @@ for index, (contrast_id, contrast_val) in enumerate(contrasts.items()):
         # TODO: debug nipy.labs.viz_tools.coord_tools.find_cut_coords
         # TODO: use the same cuts over contrasts ?
         cluster_th = 10
-        clusters, info = cluster_stats(z_map, mask=None, height_th=.05,
+        clusters, info = cluster_stats(z_map, mask=mask_img, height_th=.05,
                                        height_control='bonferroni',
                                        cluster_th=cluster_th, nulls={})
         if clusters:
@@ -294,6 +290,7 @@ for index, (contrast_id, contrast_val) in enumerate(contrasts.items()):
         # TODO: move to locator.py
         # Find the peaks
         plot_peaks = False
+        peaks = []
         peaks = get_3d_peaks(z_map, mask=None, threshold=threshold, nn=18,
                              order_th=0)
         if peaks and plot_peaks:
@@ -305,13 +302,12 @@ for index, (contrast_id, contrast_val) in enumerate(contrasts.items()):
 
         for (region, cut_coords) in zip(regions, cuts):
             title = contrast_id + ', ' + region
-            if np.max(np.abs(z_data)) > unc_threshold:
+            if np.max(np.abs(z_data)) > threshold:
                 viz.plot_map(z_map.get_data(), z_map.get_affine(),
                              cmap=viz.cm.cold_hot, vmin=-vmax, vmax=vmax,
                              slicer='ortho', black_bg=True,
-                             threshold=unc_threshold,
-                             title=title, anat=anat_img.get_data(),
-                             anat_affine=anat_img.get_affine(),
+                             threshold=threshold,
+                             title=title,
                              cut_coords=cut_coords)
                 region = region.replace(' ', '_')
                 if len(region) > 10:
@@ -328,4 +324,4 @@ with open(output_txt, "w") as text_file:
     for line in to_write:
         text_file.writelines(line)
 
-print("All the  results were witten in %s" % write_dir)
+print("All results were witten in %s" % write_dir)

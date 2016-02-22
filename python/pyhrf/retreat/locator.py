@@ -529,10 +529,10 @@ def get_maxima(cluster, remove_background=True, min_distance=0):
         add_region = True
         if region == 'Background':
             region = locate_harvard_oxford(
-                xyz, atlas='sub-maxprob-thr25-1mm')
+                xyz, ho_atlas_name='sub-maxprob-thr25-1mm')
             if 'Cerebral' in region:
                 region = locate_harvard_oxford(
-                    xyz, atlas='cort-maxprob-thr0-1mm')
+                    xyz, ho_atlas_name='cort-maxprob-thr0-1mm')
         if region == 'Background' and remove_background:
             add_region = False
         if region in regions and min_distance > 0:
