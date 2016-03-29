@@ -17,7 +17,7 @@ from glm_tools import combine_masks, fix_paradigm, compute_prf_regressor
 #######################################
 # Data and analysis parameters
 #######################################
-subject = 'AC150013'
+subject = 'CD110147'
 data_dir = os.path.join(os.path.expanduser('~/CODE/process-asl'),
                         'procasl_cache/heroes', subject, 'nipype_mem')
 
@@ -30,7 +30,7 @@ unsmoothed_file =  glob.glob(
                  'wrvismot*.nii'))[0]
 anat_file = glob.glob(
     os.path.join(data_dir, 'nipype-interfaces-spm-preprocess-Normalize', '*',
-                 'w*brain_mask.nii'))[0]
+                 'wanat*.nii'))[0]
 mvt_file = glob.glob(
     os.path.join(data_dir, 'nipype-interfaces-spm-preprocess-Realign', '*',
                  'rp_*.txt'))[0]
@@ -118,7 +118,7 @@ bold_regs = np.array(bold_regs).squeeze(axis=-1)
 bold_regs = bold_regs.transpose()
 
 # Motion regressors
-add_regs = np.genfromtxt(mvt_file, skip_header=1)
+add_regs = np.genfromtxt(mvt_file)
 add_reg_names = ['translation x', 'translation y', 'translation z',
                  'pitch', 'roll', 'yaw']
 
